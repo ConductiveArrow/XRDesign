@@ -161,7 +161,20 @@ export async function createEnvironment(
 
   // Add physics to the terrain mesh only after all geometry modifications
   if (physics) {
-    physics.add.existing(mesh, { mass: 0, shape: "convex" }); // static body
+    physics.add.existing(mesh, { mass: 0, shape: "concave" }); // static body, use trimesh for deformed terrain
+    // Set collision group/mask for ground
+    if (
+      mesh.body &&
+      mesh.body.setCollisionGroup &&
+      mesh.body.setCollisionMask
+    ) {
+      const COLLISION_GROUP_GROUND = 1 << 2;
+      const COLLISION_GROUP_PLAYER = 1 << 0;
+      mesh.body.setCollisionGroup(COLLISION_GROUP_GROUND);
+      mesh.body.setCollisionMask(
+        COLLISION_GROUP_PLAYER | COLLISION_GROUP_GROUND,
+      );
+    }
   }
 
   // Return mesh and terrain data for use in scene
