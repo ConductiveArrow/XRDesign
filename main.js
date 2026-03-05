@@ -116,12 +116,12 @@ PhysicsLoader("/ammo", async () => {
   const modelNames = ["hut", "house"];
   const ANIMATION_PLAYBACK_RATE = 0.5; // 1 = source speed, <1 = slower
 
-  const pathToModel = `/models/house.glb`;
+  const pathToModel = `/models/cat_statue/concrete_cat_statue_4k.gltf`;
   // Place model at center of room, slightly above floor
   const centerY = 0.5; // Adjust if model is below floor
-  const position = new THREE.Vector3(2, centerY, 0);
+  const position = new THREE.Vector3(4, centerY, 0);
   const scale = 1; // Adjust based on model size and desired scale in scene
-  let mass = 0; // Static by default
+  let mass = 100; // Static by default
   const { model, mixer, activeAction, collider } = await loadModel(
     loader,
     pathToModel,
@@ -131,6 +131,7 @@ PhysicsLoader("/ammo", async () => {
     physics,
     {
       mass,
+      shape: "hull", // Use convex hull for better fitting collider; options are "box", "sphere", "cylinder", "hull"
       colliderOffset: new THREE.Vector3(0, 0, 0), // move box independently
       // rotation will rotate both mesh and collider together
     },

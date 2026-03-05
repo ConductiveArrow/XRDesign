@@ -137,7 +137,7 @@ export async function loadModel(
         scene.add(wrapper);
 
         physics.add.existing(wrapper, {
-          shape: "convex",
+          shape: options.shape || "hull",
           width: size.x || 1,
           height: size.y || 1,
           depth: size.z || 1,
