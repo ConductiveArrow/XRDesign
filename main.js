@@ -143,13 +143,12 @@ PhysicsLoader("/ammo", async () => {
     "hut.glb",
     "house.glb",
     "cat_statue/concrete_cat_statue_4k.gltf",
+    ``,
   ];
   const ANIMATION_PLAYBACK_RATE = 0.5; // 1 = source speed, <1 = slower
 
   const pathToModel = `/models/${modelNames[1]}`;
-  // Place model at center of room, slightly above floor
-  const centerY = -3.9; // Adjust if model is below floor
-  const modelPosition = new THREE.Vector3(20, centerY, 0);
+  const modelPosition = new THREE.Vector3(20, -3.9, 0); // Place model
   const scale = 18; // Adjust based on model size and desired scale in scene
   let mass = 0; // Static by default
   const { model, mixer, activeAction, collider } = await loadModel(
@@ -163,14 +162,11 @@ PhysicsLoader("/ammo", async () => {
       mass,
       shape: "concave", // Use convex hull for better fitting collider; options are "box", "sphere", "cylinder", "hull"
       colliderOffset: new THREE.Vector3(0, 0, 0), // move box independently
-      // rotation will rotate both mesh and collider together
     },
   );
 
   if (model) {
-    // model.position.set(0, 0, 0); // Raise model higher
     model.visible = true;
-
     // Ensure all child meshes are visible
     model.traverse((child) => {
       if (child.isMesh) {
@@ -185,15 +181,14 @@ PhysicsLoader("/ammo", async () => {
   }
 
   models.push({
-    name: "tolerance_statue",
+    name: `model_${models.length}`,
     model,
     mixer,
     activeAction,
     collider,
   });
 
-  // add point lights across the ceiling as if it were a gallery space
-  // Add ambient light for general illumination
+  // Add ambient light for general illumination (optional, can be removed if HDRI provides sufficient lighting)
   // const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); // Soft white light
   // scene.add(ambientLight);
 
@@ -225,8 +220,8 @@ PhysicsLoader("/ammo", async () => {
   );
   pointLight2.position.set(
     modelPosition.x + 1,
-    modelPosition.y + 10,
-    modelPosition.z + 4,
+    modelPosition.y + 11,
+    modelPosition.z + 2,
   );
   pointLight2.castShadow = true;
   scene.add(pointLight2);
@@ -238,13 +233,20 @@ PhysicsLoader("/ammo", async () => {
 
   // Main animation loop: updates models, player, and renders scene
   function animate() {
+    // Essential component: get time delta for smooth animation and physics updates
     const delta = clock.getDelta(); // Time since last frame
 
-    // Update all animated models
+    // Essential component: Update all animated models
     for (const model of models) {
       if (model.mixer) model.mixer.update(delta);
     }
 
+    // Essential component: delegate movement & camera syncing to player module
+    if (typeof updatePlayer === "function") {
+      updatePlayer(delta);
+    }
+
+    // Custom code: Example of dynamic light intensity based on player proximity to the model
     // update lights based on proximity
     if (playerCollider) {
       const lightActivationDistance = 4; // adjust to taste
@@ -256,16 +258,11 @@ PhysicsLoader("/ammo", async () => {
       }
     }
 
-    // delegate movement & camera syncing to player module
-    if (typeof updatePlayer === "function") {
-      updatePlayer(delta);
-    }
-
-    // Update physics
+    // Essential component:Update physics
     physics.update(delta * 1000);
     physics.updateDebugger();
 
-    // Render the scene
+    // Essential component: Render the scene
     renderer.render(scene, camera);
   }
 });
