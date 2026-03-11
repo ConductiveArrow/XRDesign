@@ -51,18 +51,18 @@ PhysicsLoader("/ammo", async () => {
 
   // Generate terrain and get height data
   // Exaggerate terrain height for debugging
-  const planeSize = 150; // Size of terrain plane (must match createEnvironment config)
+  const planeSize = 400; // Size of terrain plane (must match createEnvironment config)
   const { heightBounds, terrainData: terrainDataLocal } =
     await createEnvironment(
       scene,
       hdrPath,
       texturePaths,
       {
-        textureRepeat: 20, // Tiling of floor textures
+        textureRepeat: 3, // Tiling of floor textures
         planeSize: planeSize, // Size of terrain
-        segments: 20, // Grid resolution
-        heightScale: 9.2, // Exaggerated vertical exaggeration for debug
-        heightBias: -7, // Lower terrain for debug
+        segments: 60, // Grid resolution
+        heightScale: 3.2, // Exaggerated vertical exaggeration for debug
+        heightBias: -3, // Lower terrain for debug
       },
       physics,
     );
@@ -111,7 +111,7 @@ PhysicsLoader("/ammo", async () => {
   // ------ Player SETUP ------ //
   // specify a spawn point if you want to start somewhere other than the
   // origin; y is optional and computed from the terrain if omitted.
-  const playerSpawn = { x: 20, z: 0, y: 3 };
+  const playerSpawn = { x: 10, z: 0, y: 3 };
   const playerCapsuleRadius = 0.2; // <--- modify this value as needed
   // Set your desired speeds here:
   const walkAcceleration = 4; // Change this value for walk speed

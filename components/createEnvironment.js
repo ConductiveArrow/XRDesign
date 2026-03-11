@@ -2,6 +2,9 @@
 import * as THREE from "three";
 import { ExtendedMesh } from "enable3d";
 import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
+
+const TILE_SIZE = 100; // Each tile is 20x20 units
+
 export async function createEnvironment(
   scene,
   hdrPath,
@@ -35,25 +38,24 @@ export async function createEnvironment(
   } = textureConfig || {};
 
   const {
-    textureRepeat,
+    textureRepeat = 2,
     planeSize = 500,
-    segments = 128,
+    segments = 8,
     heightScale = 10,
     heightBias = -5,
   } = options || {};
 
-  // How many times to repeat the floor textures
-  const repeat = textureRepeat || 60;
+  // How many times to repeat the floor textures per tile
+  const repeat = textureRepeat;
 
-  // Helper to load and configure a texture
-  const loadTexture = async (path, { isColor = false } = {}) => {
+  // Helper to load a texture (without setting repeat - we'll clone per tile)
+  const loadTextureBase = async (path, { isColor = false } = {}) => {
     if (!path) {
       return null;
     }
     const tex = await textureLoader.loadAsync(path);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(repeat, repeat);
     if (isColor) {
       tex.encoding = THREE.sRGBEncoding;
     }
@@ -69,128 +71,208 @@ export async function createEnvironment(
     displacementTexture,
     roughnessTexture,
   ] = await Promise.all([
-    loadTexture(diffuseMap, { isColor: true }),
-    loadTexture(aoMap),
-    loadTexture(armMap),
-    loadTexture(normalMap),
-    loadTexture(displacementMap),
-    loadTexture(roughnessMap),
+    loadTextureBase(diffuseMap, { isColor: true }),
+    loadTextureBase(aoMap),
+    loadTextureBase(armMap),
+    loadTextureBase(normalMap),
+    loadTextureBase(displacementMap),
+    loadTextureBase(roughnessMap),
   ]);
 
-  // Create the terrain geometry (plane)
-  const plane = new THREE.PlaneGeometry(
-    planeSize,
-    planeSize,
-    segments,
-    segments,
+  // Calculate number of tiles needed
+  const tilesPerSide = Math.ceil(planeSize / TILE_SIZE);
+  const actualSize = tilesPerSide * TILE_SIZE;
+  const halfSize = actualSize / 2;
+
+  // Container for all tiles
+  const floorGroup = new THREE.Group();
+  floorGroup.name = "floorTiles";
+
+  // Track global height bounds across all tiles
+  let globalMinHeight = Infinity;
+  let globalMaxHeight = -Infinity;
+
+  // Build a global height grid for terrain sampling
+  const globalCols = tilesPerSide * segments + 1;
+  const globalRows = tilesPerSide * segments + 1;
+  const globalGrid = Array.from({ length: globalRows }, () =>
+    new Array(globalCols).fill(0),
   );
-  // Duplicate UVs to uv2 for AO/lightmap support
-  if (plane.attributes.uv) {
-    plane.setAttribute(
-      "uv2",
-      new THREE.BufferAttribute(plane.attributes.uv.array, 2),
-    );
-  }
 
-  // Heightmap/terrain data
-  let heightInfo = null;
-  let heightBounds = { min: 0, max: 0 };
-  let terrainData = null;
+  // Possible rotations for texture variation (0, 90, 180, 270 degrees)
+  const rotations = [
+    0,
+    Math.PI / 2,
+    Math.PI,
+    (3 * Math.PI) / 2,
+    (4 * Math.PI) / 2,
+    (3 * Math.PI) / 4,
+  ];
 
-  // If a displacement (height) texture is provided, extract height data
-  if (displacementTexture) {
-    heightInfo = extractHeightData(
-      plane,
-      displacementTexture,
-      repeat,
-      heightScale,
-      heightBias,
-    );
-    if (heightInfo) {
-      applyHeightsToGeometry(plane, heightInfo.heights);
-      heightBounds = { min: heightInfo.min, max: heightInfo.max };
-    }
-  }
+  // Create tiles
+  for (let tileZ = 0; tileZ < tilesPerSide; tileZ++) {
+    for (let tileX = 0; tileX < tilesPerSide; tileX++) {
+      // Random rotation for this tile's texture
+      const textureRotation =
+        rotations[Math.floor(Math.random() * rotations.length)];
 
-  // Build terrainData grid for sampling heights in gameplay
-  if (heightInfo) {
-    const geometryParams = plane.parameters || {};
-    const width = geometryParams.width ?? planeSize;
-    const depth = geometryParams.height ?? planeSize;
-    const cols = Math.max(heightInfo.cols ?? 0, 1);
-    const rows = Math.max(heightInfo.rows ?? 0, 1);
-    const cellSizeX = width / Math.max(cols - 1, 1);
-    const cellSizeZ = depth / Math.max(rows - 1, 1);
-    terrainData = {
-      grid: heightInfo.grid,
-      rows,
-      cols,
-      cellSizeX,
-      cellSizeZ,
-      halfWidth: width / 2,
-      halfHeight: depth / 2,
-      min: heightInfo.min,
-      max: heightInfo.max,
-    };
-  }
+      // Clone textures and apply rotation + repeat for this tile
+      const cloneAndRotateTexture = (tex) => {
+        if (!tex) return null;
+        const cloned = tex.clone();
+        cloned.needsUpdate = true;
+        cloned.repeat.set(repeat, repeat);
+        cloned.rotation = textureRotation;
+        cloned.center.set(0.5, 0.5); // Rotate around center
+        return cloned;
+      };
 
-  // Set up material with all loaded textures
-  const materialParams = {
-    map: baseTexture || undefined,
-    aoMap: aoTexture || undefined,
-    normalMap: normalTexture || undefined,
-    roughnessMap: roughnessTexture || undefined,
-    roughness: 1,
-    metalness: armTexture ? 1 : 0,
-  };
+      const tileBaseTexture = cloneAndRotateTexture(baseTexture);
+      const tileAoTexture = cloneAndRotateTexture(aoTexture);
+      const tileArmTexture = cloneAndRotateTexture(armTexture);
+      const tileNormalTexture = cloneAndRotateTexture(normalTexture);
+      const tileDisplacementTexture =
+        cloneAndRotateTexture(displacementTexture);
+      const tileRoughnessTexture = cloneAndRotateTexture(roughnessTexture);
 
-  if (armTexture) {
-    materialParams.metalnessMap = armTexture;
-    materialParams.roughnessMap = materialParams.roughnessMap || armTexture;
-    materialParams.aoMap = materialParams.aoMap || armTexture;
-  }
+      // Create tile geometry
+      const tileGeometry = new THREE.PlaneGeometry(
+        TILE_SIZE,
+        TILE_SIZE,
+        segments,
+        segments,
+      );
 
-  // Create mesh and add to scene
-  const mat = new THREE.MeshStandardMaterial(materialParams);
+      // Duplicate UVs to uv2 for AO/lightmap support
+      if (tileGeometry.attributes.uv) {
+        tileGeometry.setAttribute(
+          "uv2",
+          new THREE.BufferAttribute(
+            tileGeometry.attributes.uv.array.slice(),
+            2,
+          ),
+        );
+      }
 
-  const mesh = new ExtendedMesh(plane, mat);
-  mesh.position.set(0, 0, 0);
-  mesh.rotation.set(Math.PI / -2, 0, 0);
+      // Apply height displacement if texture available
+      if (tileDisplacementTexture) {
+        const heightInfo = extractHeightData(
+          tileGeometry,
+          displacementTexture, // Use original for pixel data
+          repeat,
+          heightScale,
+          heightBias,
+        );
+        if (heightInfo) {
+          applyHeightsToGeometry(tileGeometry, heightInfo.heights);
+          if (heightInfo.min < globalMinHeight)
+            globalMinHeight = heightInfo.min;
+          if (heightInfo.max > globalMaxHeight)
+            globalMaxHeight = heightInfo.max;
 
-  scene.add(mesh);
+          // Copy heights to global grid
+          const tileStartRow = tileZ * segments;
+          const tileStartCol = tileX * segments;
+          for (let r = 0; r < heightInfo.rows; r++) {
+            for (let c = 0; c < heightInfo.cols; c++) {
+              const globalR = tileStartRow + r;
+              const globalC = tileStartCol + c;
+              if (
+                globalR < globalRows &&
+                globalC < globalCols &&
+                heightInfo.grid[r]
+              ) {
+                globalGrid[globalR][globalC] = heightInfo.grid[r][c];
+              }
+            }
+          }
+        }
+      }
 
-  // Add physics to the terrain mesh only after all geometry modifications
-  if (physics) {
-    physics.add.existing(mesh, { mass: 0, shape: "concave" }); // static body, use trimesh for deformed terrain
+      // Create material for this tile
+      const materialParams = {
+        map: tileBaseTexture || undefined,
+        aoMap: tileAoTexture || undefined,
+        normalMap: tileNormalTexture || undefined,
+        roughnessMap: tileRoughnessTexture || undefined,
+        roughness: 1,
+        metalness: tileArmTexture ? 1 : 0,
+      };
 
-    // Set collision margin to prevent tunneling
-    if (mesh.body && mesh.body.ammo) {
-      const shape = mesh.body.ammo.getCollisionShape();
-      if (shape && shape.setMargin) {
-        shape.setMargin(0.05);
+      if (tileArmTexture) {
+        materialParams.metalnessMap = tileArmTexture;
+        materialParams.roughnessMap =
+          materialParams.roughnessMap || tileArmTexture;
+        materialParams.aoMap = materialParams.aoMap || tileArmTexture;
+      }
+
+      const tileMaterial = new THREE.MeshStandardMaterial(materialParams);
+
+      // Create mesh
+      const tileMesh = new ExtendedMesh(tileGeometry, tileMaterial);
+
+      // Position tile: center the grid around origin
+      const posX = tileX * TILE_SIZE - halfSize + TILE_SIZE / 2;
+      const posZ = tileZ * TILE_SIZE - halfSize + TILE_SIZE / 2;
+      tileMesh.position.set(posX, 0, posZ);
+      tileMesh.rotation.set(-Math.PI / 2, 0, 0);
+
+      floorGroup.add(tileMesh);
+
+      // Add physics to each tile
+      if (physics) {
+        physics.add.existing(tileMesh, { mass: 0, shape: "concave" });
+
+        // Set collision margin
+        if (tileMesh.body && tileMesh.body.ammo) {
+          const shape = tileMesh.body.ammo.getCollisionShape();
+          if (shape && shape.setMargin) {
+            shape.setMargin(0.05);
+          }
+        }
+
+        // Set collision group/mask
+        if (
+          tileMesh.body &&
+          tileMesh.body.setCollisionGroup &&
+          tileMesh.body.setCollisionMask
+        ) {
+          const COLLISION_GROUP_PLAYER = 1 << 0;
+          const COLLISION_GROUP_GROUND = 1 << 2;
+          const COLLISION_GROUP_OBJECT = 1 << 3;
+          tileMesh.body.setCollisionGroup(COLLISION_GROUP_GROUND);
+          tileMesh.body.setCollisionMask(
+            COLLISION_GROUP_PLAYER |
+              COLLISION_GROUP_GROUND |
+              COLLISION_GROUP_OBJECT,
+          );
+        }
       }
     }
-
-    // Set collision group/mask for ground
-    if (
-      mesh.body &&
-      mesh.body.setCollisionGroup &&
-      mesh.body.setCollisionMask
-    ) {
-      const COLLISION_GROUP_PLAYER = 1 << 0;
-      const COLLISION_GROUP_GROUND = 1 << 2;
-      const COLLISION_GROUP_OBJECT = 1 << 3;
-      mesh.body.setCollisionGroup(COLLISION_GROUP_GROUND);
-      mesh.body.setCollisionMask(
-        COLLISION_GROUP_PLAYER |
-          COLLISION_GROUP_GROUND |
-          COLLISION_GROUP_OBJECT,
-      );
-    }
   }
 
-  // Return mesh and terrain data for use in scene
-  return { floor: mesh, heightBounds, terrainData };
+  scene.add(floorGroup);
+
+  // Build heightBounds
+  const heightBounds = {
+    min: Number.isFinite(globalMinHeight) ? globalMinHeight : 0,
+    max: Number.isFinite(globalMaxHeight) ? globalMaxHeight : 0,
+  };
+
+  // Build terrainData for gameplay height sampling
+  const terrainData = {
+    grid: globalGrid,
+    rows: globalRows,
+    cols: globalCols,
+    cellSizeX: actualSize / Math.max(globalCols - 1, 1),
+    cellSizeZ: actualSize / Math.max(globalRows - 1, 1),
+    halfWidth: halfSize,
+    halfHeight: halfSize,
+    min: heightBounds.min,
+    max: heightBounds.max,
+  };
+
+  return { floor: floorGroup, heightBounds, terrainData };
 }
 
 // Extracts height data from a displacement texture and geometry
