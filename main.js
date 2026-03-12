@@ -10,34 +10,35 @@ import {
   createCeilingLights,
 } from "./components/createLights.js"; // helpers for adding lights
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"; // Three.js GLTF loader
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"; // Editor orbit controls
-import { picker } from "./components/picker.js"; // Object selection for editor
+import { createModeSystem } from "./components/modeSystem.js"; // Editor/Play mode system
 // physics
 import { AmmoPhysics, PhysicsLoader } from "@enable3d/ammo-physics";
 
 // '/ammo' is the folder where all ammo file are
 PhysicsLoader("/ammo", async () => {
   // All code that uses Ammo/AmmoPhysics must be inside this callback!
-  // Declare all variables locally to avoid ReferenceError
+
+  // ------------------------------- //
+  // --------- SCENE SETUP --------- //
+  // ------------------------------- //
   let scene, camera, renderer, terrainData;
-
   const clock = new THREE.Clock();
-
-  const DEBUG_LOG_MOVEMENT = false; // Set to true to enable console logging of player movement data for debugging
-
-  // ------ ENVIRONMENT SETUP ------ //
-  // Create scene, camera, renderer
   ({ scene, camera, renderer } = await createScene());
   renderer.toneMapping = THREE.ACESFilmicToneMapping; // for example
   renderer.toneMappingExposure = 0.5; // <–– 1 is “normal”, <1 makes the HDRI darker
 
   // Set up physics with more substeps for reliable collision
+  const DEBUG_LOG_MOVEMENT = false; // Set to true to enable console logging of player movement data for debugging
+
   const physics = new AmmoPhysics(scene, {
     maxSubSteps: 4,
     fixedTimeStep: 1 / 120,
   });
   if (DEBUG_LOG_MOVEMENT) physics.debug?.enable();
 
+  // ------------------------------- //
+  // ------ ENVIRONMENT SETUP ------ //
+  // ------------------------------- //
   // Set up environment textures and terrain
   const hdrPath = "textures/hdr/sky_night.hdr"; // HDRI for sky background and lighting
   // const hdrPath = ""; // HDRI for sky background and lighting
@@ -110,7 +111,9 @@ PhysicsLoader("/ammo", async () => {
   //   showHelpers: true, // toggle to see helper spheres
   // });
 
-  // ------ Player SETUP ------ //
+  // ------------------------------- //
+  // --------- PLAYER SETUP -------- //
+  // ------------------------------- //
   // specify a spawn point if you want to start somewhere other than the
   // origin; y is optional and computed from the terrain if omitted.
   const playerSpawn = { x: -20, z: 0, y: 3 };
@@ -145,6 +148,22 @@ PhysicsLoader("/ammo", async () => {
     spawnPosition: playerSpawn,
   });
 
+  // ------------------------------- //
+  // - MODE SYSTEM (Editor / Play) - //
+  // ------------------------------- //
+  const modeSystem = createModeSystem({
+    camera,
+    renderer,
+    scene,
+    player,
+    playerCollider,
+    playerHeight,
+    playerSpawn,
+  });
+  
+  // ------------------------------- //
+  // -------- MODEL SETUP ---------- //
+  // ------------------------------- //
   // Load animated models and add to scene
   const models = [];
   const loader = new GLTFLoader();
@@ -222,6 +241,10 @@ PhysicsLoader("/ammo", async () => {
     });
   }
 
+  // ------------------------------- //
+  // ------ LIGHT SETUP ------ //
+  // ------------------------------- //
+
   // Add ambient light for general illumination (optional, can be removed if HDRI provides sufficient lighting)
   // const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); // Soft white light
   // scene.add(ambientLight);
@@ -262,154 +285,6 @@ PhysicsLoader("/ammo", async () => {
   // lights.push(pointLight);
   // lights.push(pointLight2);
 
-  // ------ MODE SYSTEM (Editor / Play) ------ //
-  // Editor mode: OrbitControls for free camera movement
-  // Play mode: First-person pointer lock controls
-  let currentMode = "editor"; // "editor" or "play"
-
-  // Set up OrbitControls for editor mode
-  const orbitControls = new OrbitControls(camera, renderer.domElement);
-  orbitControls.enableDamping = true;
-  orbitControls.dampingFactor = 0.05;
-  orbitControls.screenSpacePanning = true;
-  orbitControls.minDistance = 1;
-  orbitControls.maxDistance = 500;
-  orbitControls.maxPolarAngle = Math.PI / 2 + 0.1; // Slightly below horizon
-  // Position camera for editor view
-  camera.position.set(playerSpawn.x, playerSpawn.y + 20, playerSpawn.z + 30);
-  orbitControls.target.set(playerSpawn.x, playerSpawn.y, playerSpawn.z);
-  orbitControls.update();
-
-  // ------ OBJECT SELECTION (Editor Mode) ------ //
-  const objectPicker = picker(renderer, scene, camera);
-  let selectedObject = null;
-
-  // Selection info UI
-  const selectionInfo = document.createElement("div");
-  selectionInfo.style.cssText = `
-    position: fixed;
-    top: 16px;
-    left: 16px;
-    padding: 8px 16px;
-    background: rgba(0, 0, 0, 0.7);
-    color: white;
-    font-family: sans-serif;
-    font-size: 12px;
-    border-radius: 4px;
-    z-index: 1000;
-    display: none;
-  `;
-  document.body.appendChild(selectionInfo);
-
-  function updateSelectionInfo() {
-    if (selectedObject && currentMode === "editor") {
-      const name = selectedObject.name || selectedObject.type || "Object";
-      const pos = selectedObject.position;
-      selectionInfo.innerHTML = `
-        <strong>Selected:</strong> ${name}<br>
-        <strong>Position:</strong> x: ${pos.x.toFixed(2)}, y: ${pos.y.toFixed(2)}, z: ${pos.z.toFixed(2)}
-      `;
-      selectionInfo.style.display = "block";
-    } else {
-      selectionInfo.style.display = "none";
-    }
-  }
-
-  objectPicker.onSelect((obj) => {
-    selectedObject = obj;
-    updateSelectionInfo();
-    if (obj) {
-      console.log("[Editor] Selected:", obj.name || obj.type, obj);
-    } else {
-      console.log("[Editor] Selection cleared");
-    }
-  });
-
-  // Enable picker by default for editor mode
-  objectPicker.setEnabled(true);
-
-  // Mode indicator UI
-  const modeIndicator = document.createElement("div");
-  modeIndicator.style.cssText = `
-    position: fixed;
-    bottom: 16px;
-    left: 16px;
-    padding: 8px 16px;
-    background: rgba(0, 0, 0, 0.7);
-    color: white;
-    font-family: sans-serif;
-    font-size: 14px;
-    border-radius: 4px;
-    z-index: 1000;
-  `;
-  document.body.appendChild(modeIndicator);
-
-  function updateModeIndicator() {
-    modeIndicator.textContent =
-      currentMode === "editor" ?
-        "EDITOR MODE (Press L for Play)"
-      : "PLAY MODE (Press L for Editor)";
-  }
-  updateModeIndicator();
-
-  // Toggle between modes with L key
-  function switchToEditorMode() {
-    currentMode = "editor";
-    window.__disablePointerLock = true; // Prevent click-to-lock in editor
-    orbitControls.enabled = true;
-    objectPicker.setEnabled(true); // Enable object selection
-    // Hide pointer lock hint
-    const hint = document.getElementById("pointer-lock-hint");
-    if (hint) hint.style.display = "none";
-    // Unlock pointer if locked
-    if (player?.controls?.isLocked) {
-      player.controls.unlock();
-    }
-    // Position orbit camera at current player position, looking at player
-    if (playerCollider) {
-      const pos = playerCollider.position;
-      camera.position.set(pos.x, pos.y + 15, pos.z + 20);
-      orbitControls.target.set(pos.x, pos.y, pos.z);
-      orbitControls.update();
-    }
-    updateModeIndicator();
-    updateSelectionInfo();
-  }
-
-  function switchToPlayMode() {
-    currentMode = "play";
-    window.__disablePointerLock = false; // Allow pointer lock in play mode
-    orbitControls.enabled = false;
-    objectPicker.setEnabled(false); // Disable object selection
-    selectionInfo.style.display = "none"; // Hide selection info
-    // Show pointer lock hint
-    const hint = document.getElementById("pointer-lock-hint");
-    if (hint) hint.style.display = "";
-    // Position camera at player capsule
-    if (playerCollider) {
-      camera.position.copy(playerCollider.position);
-      camera.position.y += playerHeight + 0.03;
-    }
-    // Lock pointer for first-person controls
-    if (player?.controls && !player.controls.isLocked) {
-      player.controls.lock();
-    }
-    updateModeIndicator();
-  }
-
-  // Initialize in editor mode
-  window.__disablePointerLock = true;
-
-  window.addEventListener("keydown", (event) => {
-    if (event.code === "KeyL") {
-      if (currentMode === "editor") {
-        switchToPlayMode();
-      } else {
-        switchToEditorMode();
-      }
-    }
-  });
-
   // Start animation loop
   renderer.setAnimationLoop(animate);
 
@@ -424,10 +299,9 @@ PhysicsLoader("/ammo", async () => {
     }
 
     // Mode-specific updates
-    if (currentMode === "editor") {
+    if (modeSystem.isEditorMode()) {
       // Editor mode: update orbit controls and picker
-      orbitControls.update();
-      objectPicker.update();
+      modeSystem.update();
     } else {
       // Play mode: update player movement and physics
       if (typeof updatePlayer === "function") {
@@ -457,4 +331,4 @@ PhysicsLoader("/ammo", async () => {
     // Essential component: Render the scene
     renderer.render(scene, camera);
   }
-});
+};);
