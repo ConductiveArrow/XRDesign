@@ -349,17 +349,26 @@ PhysicsLoader("/ammo", async () => {
         updatePlayer(delta);
       }
 
+      //syntax for checking player proximity to a model
+      //  const playerPos = playerCollider.position;
+      //  const modelPos = model.collider.position;
+      //  const dx = modelPos.x - playerPos.x;
+      //  const dz = modelPos.z - playerPos.z;
+      //  const distSq = dx * dx + dz * dz;
+      //  const activationDistanceSq = 30; // set activation distance (5 units) squared for comparison
+      //  const isNear = distSq < activationDistanceSq;
+
       // Optimized light proximity check using squared distance (avoids sqrt)
       // if (playerCollider && lights.length > 0) {
       //   const lightActivationDistanceSq = 16; // 4^2 - compare squared to avoid sqrt
-      //   const px = playerCollider.position.x;
-      //   const pz = playerCollider.position.z;
+      //   const playerPos = playerCollider.position;
       //   for (let i = 0; i < lights.length; i++) {
       //     const light = lights[i];
-      //     const dx = light.position.x - px;
-      //     const dz = light.position.z - pz;
+      //     const dx = light.position.x - playerPos.x;
+      //     const dz = light.position.z - playerPos.z;
       //     const distSq = dx * dx + dz * dz;
-      //     light.intensity = distSq < lightActivationDistanceSq ? 100 : 0;
+      //     const isNear = distSq < activationDistanceSq;
+      //     light.intensity = isNear ? 100 : 0;
       //   }
       // }
 
