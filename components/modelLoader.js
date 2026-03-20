@@ -70,10 +70,9 @@ export async function loadModel(
       }
 
       // compute optional offsets
-      const colliderOff =
-        options.colliderOffset ?
-          options.colliderOffset instanceof THREE.Vector3 ?
-            options.colliderOffset
+      const colliderOff = options.colliderOffset
+        ? options.colliderOffset instanceof THREE.Vector3
+          ? options.colliderOffset
           : new THREE.Vector3(
               options.colliderOffset.x || 0,
               options.colliderOffset.y || 0,
@@ -81,10 +80,9 @@ export async function loadModel(
             )
         : new THREE.Vector3();
 
-      const modelOff =
-        options.modelOffset ?
-          options.modelOffset instanceof THREE.Vector3 ?
-            options.modelOffset
+      const modelOff = options.modelOffset
+        ? options.modelOffset instanceof THREE.Vector3
+          ? options.modelOffset
           : new THREE.Vector3(
               options.modelOffset.x || 0,
               options.modelOffset.y || 0,
@@ -95,22 +93,22 @@ export async function loadModel(
       const colliderPosition = basePos.clone().add(colliderOff);
 
       // apply fixed base orientation and optional user rotation
-      const baseEuler = new THREE.Euler(0, Math.PI / 1.2, 0);
+      const baseEuler = new THREE.Euler(0, 0, 0);
       const baseQuat = new THREE.Quaternion().setFromEuler(baseEuler);
       let finalQuat = baseQuat.clone();
       if (options.rotation) {
         const r =
-          options.rotation instanceof THREE.Vector3 ?
-            new THREE.Euler(
-              options.rotation.x,
-              options.rotation.y,
-              options.rotation.z,
-            )
-          : new THREE.Euler(
-              options.rotation.x || 0,
-              options.rotation.y || 0,
-              options.rotation.z || 0,
-            );
+          options.rotation instanceof THREE.Vector3
+            ? new THREE.Euler(
+                options.rotation.x,
+                options.rotation.y,
+                options.rotation.z,
+              )
+            : new THREE.Euler(
+                options.rotation.x || 0,
+                options.rotation.y || 0,
+                options.rotation.z || 0,
+              );
         const userQuat = new THREE.Quaternion().setFromEuler(r);
         finalQuat.multiply(userQuat);
       }

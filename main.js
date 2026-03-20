@@ -13,6 +13,9 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js"; // Three.
 import { createModeSystem } from "./components/modeSystem.js"; // Editor/Play mode system
 // physics
 import { AmmoPhysics, PhysicsLoader } from "@enable3d/ammo-physics";
+import { rotate } from "three/tsl";
+import { RotateNode } from "three/webgpu";
+import { Collision } from "matter-js";
 
 // '/ammo' is the folder where all ammo file are
 PhysicsLoader("/ammo", async () => {
@@ -55,8 +58,8 @@ PhysicsLoader("/ammo", async () => {
 
   // Generate terrain and get height data
   // Supports rectangular floors with width/depth
-  const floorWidth = 20; // X axis
-  const floorDepth = 10; // Z axis
+  const floorWidth = 100; // X axis
+  const floorDepth = 20; // Z axis
   const {
     heightBounds,
     terrainData: terrainDataLocal,
@@ -66,7 +69,7 @@ PhysicsLoader("/ammo", async () => {
     hdrPath,
     texturePaths,
     {
-      textureRepeat: 1, // Tiling of floor textures
+      textureRepeat: 10, // Tiling of floor textures
       width: floorWidth, // Rectangular floor width
       depth: floorDepth, // Rectangular floor depth
       segments: 16, // Grid resolution
@@ -77,7 +80,7 @@ PhysicsLoader("/ammo", async () => {
       // - "aligned": 0° and 180° only for structured textures (planks, tiles)
       // - "none": no rotation
       // - Custom array: [0, Math.PI] or any angles in radians
-      textureRotations: "aligned",
+      textureRotations: "natural", // Options: Aligned
     },
     physics,
   );
@@ -88,11 +91,11 @@ PhysicsLoader("/ammo", async () => {
   const wallTexName = "corrugated_iron"; // Base name for floor textures (expects _diff, _ao, etc. suffixes)
   const wallTexturePaths = {
     diffuseMap: `textures/walls/${wallTexName}/${wallTexName}_diff.jpg`,
-    // aoMap: `textures/walls/${wallTexName}/${wallTexName}_ao.jpg`,
+    aoMap: `textures/walls/${wallTexName}/${wallTexName}_ao.jpg`,
     armMap: `textures/walls/${wallTexName}/${wallTexName}_arm.jpg`,
     normalMap: `textures/walls/${wallTexName}/${wallTexName}_nor.jpg`,
     displacementMap: `textures/walls/${wallTexName}/${wallTexName}_disp.jpg`,
-    // roughnessMap: `textures/walls/${wallTexName}/${wallTexName}_rough.jpg`,
+    roughnessMap: `textures/walls/${wallTexName}/${wallTexName}_rough.jpg`,
   };
   // build room walls/ceiling; supports rectangular rooms and selective wall creation
   // note: playerCollider not yet available, so collision group update will be
@@ -103,7 +106,7 @@ PhysicsLoader("/ammo", async () => {
     width: floorSize.width, // Use actual floor dimensions
     depth: floorSize.depth,
     wallHeight: 5,
-    wallThickness: 0.5,
+    wallThickness: 0.2,
     segments: 10, // Number of segments for wall geometry
     textureRepeat: 10,
     wallTextures: wallTexturePaths,
@@ -111,8 +114,8 @@ PhysicsLoader("/ammo", async () => {
     // Select which walls to create (all enabled by default)
     walls: {
       north: false, // Back wall (-Z)
-      south: true, // Front wall (+Z)
-      east: true, // Right wall (+X)
+      south: false, // Front wall (+Z)
+      east: false, // Right wall (+X)
       west: false, // Left wall (-X)
     },
     ceiling: false, // Toggle roof on/off
@@ -120,18 +123,18 @@ PhysicsLoader("/ammo", async () => {
 
   // // optional helper to create a ceiling grid of spotlights (n×n):
   // // Note: ceilingSize format changed - now use roomSize.width/depth
-  // let ceilingLights = [];
-  // ceilingLights = createCeilingLights(scene, {
-  //   ceilingSize: [roomSize.width, wallThickness, roomSize.depth],
-  //   ceilingY,
-  //   wallThickness,
-  //   numLightsPerSide: 4,
-  //   color: 0xffffff,
-  //   intensity: 200,
-  //   distance: 25,
-  //   decay: 2,
-  //   showHelpers: true, // toggle to see helper spheres
-  // });
+  let ceilingLights = [];
+  ceilingLights = createCeilingLights(scene, {
+    ceilingSize: [roomSize.width, wallThickness, roomSize.depth],
+    ceilingY,
+    wallThickness,
+    numLightsPerSide: 4,
+    color: 0x574856,
+    intensity: 200,
+    distance: 25,
+    decay: 2,
+    showHelpers: true, // toggle to see helper spheres
+  });
 
   // ------------------------------- //
   // --------- PLAYER SETUP -------- //
@@ -141,10 +144,10 @@ PhysicsLoader("/ammo", async () => {
   const playerSpawn = { x: 0, z: 0, y: 3 };
   const playerCapsuleRadius = 0.2; // <--- modify this value as needed
   // Set your desired speeds here:
-  const walkAcceleration = 4; // Change this value for walk speed
-  const sprintAcceleration = 8; // Change this value for sprint speed
+  const walkAcceleration = 3.5; // Change this value for walk speed
+  const sprintAcceleration = 5; // Change this value for sprint speed
   const jumpSpeed = 5; // Change this value for jump speed
-  const playerHeight = 0.6;
+  const playerHeight = 1;
 
   const {
     playerCollider,
@@ -187,42 +190,84 @@ PhysicsLoader("/ammo", async () => {
   // ------------------------------- //
   // Consolidated model configuration - easier to maintain
   const ANIMATION_PLAYBACK_RATE = 1.0; // 1 = source speed, <1 = slower
+
+  // Model Scaling
+
   const modelConfigs = [
+    // Starting Platform
     {
-      path: "rhino/source/rhinoThird_twoSevenNine_test.glb",
-      scale: 4,
-      mass: 1,
-      shape: "hull",
-      position: [7, 0, 0],
-    },
-    {
-      path: "cat_statue/concrete_cat_statue_4k.gltf",
-      scale: 2,
-      mass: 1000,
+      path: "Platform2.glb",
+      scale: 5,
+      mass: 10000,
       shape: "box",
-      position: [0, 0, 0],
+      position: [-40, 0, 0],
     },
+
+    // 1.1 - Quintuple Steps (First Step)
     {
-      path: "chair/mid_century_lounge_chair_1k.gltf",
-      scale: 1,
-      mass: 10,
-      shape: "hull",
-      position: [-7, 0, 0],
+      path: "1.1_Quintuple-Steps-90_1.glb",
+      scale: 2,
+      mass: 10000,
+      shape: "box",
+      position: [-32, 0, -2],
     },
-    // {
-    //   path: "animated_triceratops_skeleton.glb",
-    //   scale: 10,
-    //   mass: 0,
-    //   shape: "box",
-    //   position: [-15, 0, -1],
-    // },
-    // {
-    //   path: "fountain.glb",
-    //   scale: 8,
-    //   mass: 0,
-    //   shape: "concave",
-    //   position: [20, -4.5, 0],
-    // },
+
+    {
+      // 1.1 - Quintuple Steps (Second Step)
+      path: "1.1_Quintuple-Steps-90_2.glb",
+      scale: 2,
+      mass: 100000,
+      shape: "box",
+      position: [-28, 0, 2],
+    },
+
+    // 1.1 - Quintuple Steps (Third Step)
+    {
+      path: "1.1_Quintuple-Steps-90_1.glb",
+      scale: 2,
+      mass: 10000,
+      shape: "box",
+      position: [-24, 0, -2],
+    },
+    // 1.1 - Quintuple Steps (Fourth Step)
+    {
+      path: "1.1_Quintuple-Steps-90_2.glb",
+      scale: 2,
+      mass: 100000,
+      shape: "box",
+      position: [-20, 0, 2],
+    },
+    // 1.1 - Quintuple Steps (Fifth Step)
+    {
+      path: "1.1_Quintuple-Steps-90_1.glb",
+      scale: 2,
+      mass: 100000,
+      shape: "box",
+      position: [-16, 0, -2],
+    },
+
+    // Ending Platform (To 1.2)
+    {
+      path: "Platform2.glb",
+      scale: 5,
+      mass: 10000,
+      shape: "box",
+      position: [-9, 0, 0],
+    },
+
+    // 1.2 - ???
+
+    // WOTER
+    {
+      path: "small_flat_cube_of_water.glb",
+      scale: 1,
+      mass: 0,
+      position: [-15, 0, 0],
+      shape: "box",
+      Collision: false,
+    },
+
+    // Truss
   ];
 
   // Load all models in parallel for faster startup
@@ -281,7 +326,7 @@ PhysicsLoader("/ammo", async () => {
   });
 
   console.log(`[Engine] Loaded ${models.length} models in parallel`, models);
-
+  models[7].model.scale.set(0.4, 0.01, 0.035);
   // ------------------------------- //
   // ------ LIGHT SETUP ------ //
   // ------------------------------- //
@@ -328,7 +373,7 @@ PhysicsLoader("/ammo", async () => {
 
   // Start animation loop
   renderer.setAnimationLoop(animate);
-
+  console.log(models[7]);
   // Main animation loop: updates models, player, and renders scene
   function animate() {
     // Essential component: get time delta for smooth animation and physics updates
